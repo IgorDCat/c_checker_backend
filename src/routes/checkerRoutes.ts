@@ -1,16 +1,27 @@
 import { Router } from 'express';
 
-import { checkAppointments } from '../services/appointmentChecker';
+import {
+    startChecker,
+    stopChecker,
+    getCheckerStatus,
+} from '../services/appointmentChecker';
 
 const router = Router();
 
-router.post('/check', async (_, res) => {
-    const result = await checkAppointments();
+router.post('/start', (_, res) => {
+    const result = startChecker();
 
-    res.json({
-        success: true,
-        result,
-    });
+    res.json(result);
+});
+
+router.post('/stop', (_, res) => {
+    const result = stopChecker();
+
+    res.json(result);
+});
+
+router.get('/status', (_, res) => {
+    res.json(getCheckerStatus());
 });
 
 export default router;

@@ -1,5 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import 'dotenv/config';
 
 import express from 'express';
 import checkerRoutes from './routes/checkerRoutes';
@@ -10,6 +9,11 @@ app.use(express.json());
 
 app.use('/checker', checkerRoutes);
 
+app.get('/', (_, res) => {
+    res.json({
+        status: 'ok',
+    });
+});
 
 const PORT = Number(process.env.PORT) || 8000;
 

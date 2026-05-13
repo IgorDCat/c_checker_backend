@@ -3,6 +3,11 @@ import { chromium, Page } from 'playwright';
 import { checkerState } from '../state/checkerState';
 
 import { sendTelegramMessage } from './telegram';
+import {goToNextMonth, goToPreviousMonth} from "./goToNextMonth";
+import {SERVICES} from "./services";
+
+const CHECK_INTERVAL =
+    Number(process.env.CHECK_INTERVAL) || 120000;
 
 const URL = process.env.CHECKED_URL || '';
 
@@ -14,34 +19,23 @@ async function getAvailableDays(
         .allTextContents();
 }
 
-async function goToNextMonth(
-    page: Page
-): Promise<void> {
-    const nextButton = page.locator(
-        'i.fa-angle-right'
-    );
 
-    await nextButton.click();
+async function performCheck(): Promise<void> {
+    if (checkerState.isChecking) {
+        console.log('Check already running');
 
-    await page.waitForTimeout(1500);
-}
+        return;
+    }
 
-async function goToPreviousMonth(
-    page: Page
-): Promise<void> {
-    const prevButton = page.locator(
-        'i.fa-angle-left'
-    );
+    checkerState.isChecking = true;
 
-    await prevButton.click();
-
-    await page.waitForTimeout(1500);
-}
-
-export async function checkAppointments() {
     let browser;
 
     try {
+        console.log(
+            `[${new Date().toISOString()}] Checking appointments...`
+        );
+
         browser = await chromium.launch({
             headless: true,
         });
@@ -61,6 +55,7 @@ export async function checkAppointments() {
         const serviceSelect =
             page.locator('select').nth(1);
 
+        // основной офис
         await officeSelect.selectOption({
             label:
                 'SAIC - Servicio Atención Integral Ciudadana',
@@ -68,86 +63,155 @@ export async function checkAppointments() {
 
         await page.waitForTimeout(1000);
 
-        await serviceSelect.selectOption({
-            label:
-                '(C/PINO SANTO 1) MAÑANA - TRÁMITES MUNICIPALES',
-        });
+        const foundSlots: string[] = [];
 
-        await page.waitForTimeout(3000);
+        // ===== CHECK ALL SERVICES =====
 
-        // ===== ТЕКУЩИЙ МЕСЯЦ =====
+        for (const service of SERVICES) {
+            console.log(`Checking service: ${service}`);
 
-        const currentMonthDays =
-            await getAvailableDays(page);
+            try {
+                await serviceSelect.selectOption({
+                    label: service,
+                });
 
-        console.log(
-            'Current month:',
-            currentMonthDays
-        );
+                await page.waitForTimeout(3000);
 
-        let nextMonthDays: string[] = [];
+                // ===== CURRENT MONTH =====
 
-        // ===== СЛОТОВ НЕТ → ПРОВЕРЯЕМ СЛЕДУЮЩИЙ =====
+                const currentMonthDays =
+                    await getAvailableDays(page);
 
-        if (currentMonthDays.length === 0) {
-            console.log(
-                'No slots in current month, checking next month...'
-            );
+                console.log(
+                    `${service} current month:`,
+                    currentMonthDays
+                );
 
-            await goToNextMonth(page);
+                let nextMonthDays: string[] = [];
 
-            nextMonthDays =
-                await getAvailableDays(page);
+                // ===== NEXT MONTH =====
 
-            console.log(
-                'Next month:',
-                nextMonthDays
-            );
+                if (currentMonthDays.length === 0) {
+                    console.log(
+                        `No slots in current month for ${service}. Checking next month...`
+                    );
 
-            // optional
-            await goToPreviousMonth(page);
+                    await goToNextMonth(page);
+
+                    nextMonthDays =
+                        await getAvailableDays(page);
+
+                    console.log(
+                        `${service} next month:`,
+                        nextMonthDays
+                    );
+
+                    // вернуть календарь обратно
+                    await goToPreviousMonth(page);
+                }
+
+                const serviceSlots = [
+                    ...currentMonthDays,
+                    ...nextMonthDays,
+                ];
+
+                if (serviceSlots.length > 0) {
+                    foundSlots.push(
+                        `${service}: ${serviceSlots.join(
+                            ', '
+                        )}`
+                    );
+                }
+            } catch (err) {
+                console.error(
+                    `Failed checking service ${service}:`,
+                    err
+                );
+            }
         }
 
-        const allSlots = [
-            ...currentMonthDays,
-            ...nextMonthDays,
-        ];
+        console.log('Found slots:', foundSlots);
 
-        // ===== УВЕДОМЛЕНИЕ =====
-
-        if (
-            allSlots.length > 0 &&
-            JSON.stringify(allSlots) !==
+        const hasNewSlots =
+            foundSlots.length > 0 &&
+            JSON.stringify(foundSlots) !==
             JSON.stringify(
                 checkerState.lastSlots
-            )
-        ) {
+            );
+
+        if (hasNewSlots) {
             await sendTelegramMessage(
-                `🚨 Свободные слоты:\n${allSlots.join(
-                    ', '
+                `🚨 Найдены свободные слоты:\n\n${foundSlots.join(
+                    '\n\n'
                 )}`
             );
 
-            console.log('Notification sent');
+            console.log('Telegram notification sent');
         }
 
-        checkerState.lastSlots = allSlots;
-
-        return {
-            success: true,
-            slots: allSlots,
-        };
+        checkerState.lastSlots = foundSlots;
     } catch (err) {
-        console.error(err);
-
-        return {
-            success: false,
-            error:
-                err instanceof Error
-                    ? err.message
-                    : 'Unknown error',
-        };
+        console.error('Check failed:', err);
     } finally {
+        checkerState.isChecking = false;
+
         await browser?.close();
     }
+}
+
+export function startChecker() {
+    if (checkerState.isRunning) {
+        return {
+            success: false,
+            message: 'Checker already running',
+        };
+    }
+
+    checkerState.isRunning = true;
+
+    // первая проверка сразу
+    void performCheck();
+
+    checkerState.intervalId = setInterval(() => {
+        void performCheck();
+    }, CHECK_INTERVAL);
+
+    console.log('Checker started');
+
+    return {
+        success: true,
+        message: 'Checker started',
+    };
+}
+
+export function stopChecker() {
+    if (!checkerState.isRunning) {
+        return {
+            success: false,
+            message: 'Checker is not running',
+        };
+    }
+
+    if (checkerState.intervalId) {
+        clearInterval(checkerState.intervalId);
+    }
+
+    checkerState.intervalId = null;
+
+    checkerState.isRunning = false;
+
+    console.log('Checker stopped');
+
+    return {
+        success: true,
+        message: 'Checker stopped',
+    };
+}
+
+export function getCheckerStatus() {
+    return {
+        isRunning: checkerState.isRunning,
+        isChecking: checkerState.isChecking,
+        lastSlots: checkerState.lastSlots,
+    };
 }
