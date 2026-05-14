@@ -1,10 +1,11 @@
-import { chromium, Page } from 'playwright';
+import {BrowserContext, Page} from 'playwright';
 
 import { checkerState } from '../state/checkerState';
 
 import { sendTelegramMessage } from './telegram';
 import {goToNextMonth, goToPreviousMonth} from "./goToNextMonth";
 import {SERVICES} from "./services";
+import {getBrowser} from "./browser";
 
 const CHECK_INTERVAL =
     Number(process.env.CHECK_INTERVAL) || 120000;
@@ -29,18 +30,18 @@ async function performCheck(): Promise<void> {
 
     checkerState.isChecking = true;
 
-    let browser;
+    let context: BrowserContext | null = null;
 
     try {
         console.log(
             `[${new Date().toISOString()}] Checking appointments...`
         );
 
-        browser = await chromium.launch({
-            headless: true,
-        });
+        const browser = await getBrowser()
 
-        const page = await browser.newPage();
+        context = await browser.newContext()
+
+        const page = await context.newPage()
 
         await page.goto(URL, {
             waitUntil: 'networkidle',
@@ -155,7 +156,7 @@ async function performCheck(): Promise<void> {
     } finally {
         checkerState.isChecking = false;
 
-        await browser?.close();
+        await context?.close();
     }
 }
 
