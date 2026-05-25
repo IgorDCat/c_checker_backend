@@ -6,9 +6,10 @@ import { sendTelegramMessage } from './telegram';
 import {goToNextMonth, goToPreviousMonth} from "./goToNextMonth";
 import {SERVICES} from "./services";
 import {getBrowser} from "./browser";
+import {getCurrentDateTime} from "../helpers/getCurrentDateTime";
 
 const CHECK_INTERVAL =
-    Number(process.env.CHECK_INTERVAL) || 120000;
+    Number(process.env.CHECK_INTERVAL) || 1012200;
 
 const URL = process.env.CHECKED_URL || '';
 
@@ -29,6 +30,9 @@ async function performCheck(): Promise<void> {
     }
 
     checkerState.isChecking = true;
+
+    checkerState.lastCheckingTime = getCurrentDateTime()
+    console.log('lastCheckingTime: ' + checkerState.lastCheckingTime)
 
     let context: BrowserContext | null = null;
 
@@ -71,6 +75,8 @@ async function performCheck(): Promise<void> {
         for (const service of SERVICES) {
             console.log(`Checking service: ${service}`);
 
+            if (!checkerState.isRunning) break
+
             try {
                 await serviceSelect.selectOption({
                     label: service,
@@ -93,11 +99,10 @@ async function performCheck(): Promise<void> {
                 // ===== NEXT MONTH =====
 
                 if (currentMonthDays.length === 0) {
-                    console.log(
-                        `No slots in current month for ${service}. Checking next month...`
-                    );
+                    console.log(`No slots in current month for ${service}. Checking next month...`);
 
-                    await goToNextMonth(page);
+                    await goToNextMonth(page)
+                    await page.waitForTimeout(1000);
 
                     nextMonthDays =
                         await getAvailableDays(page);
@@ -214,5 +219,6 @@ export function getCheckerStatus() {
         isRunning: checkerState.isRunning,
         isChecking: checkerState.isChecking,
         lastSlots: checkerState.lastSlots,
+        lastCheckingTime: checkerState.lastCheckingTime
     };
 }
