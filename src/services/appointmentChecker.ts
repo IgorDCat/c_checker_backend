@@ -37,6 +37,11 @@ async function performCheck(): Promise<void> {
     let context: BrowserContext | null = null;
 
     try {
+        if (!URL) {
+            checkerState.lastError = 'no url'
+            checkerState.lastErrorTime = getCurrentDateTime()
+        }
+
         console.log(
             `[${new Date().toISOString()}] Checking appointments...`
         );
@@ -129,6 +134,8 @@ async function performCheck(): Promise<void> {
                     );
                 }
             } catch (err) {
+                checkerState.lastError = String(err)
+                checkerState.lastErrorTime = getCurrentDateTime()
                 console.error(
                     `Failed checking service ${service}:`,
                     err
@@ -151,13 +158,13 @@ async function performCheck(): Promise<void> {
                     '\n\n'
                 )}`
             );
-
-            console.log('Telegram notification sent');
         }
 
         checkerState.lastSlots = foundSlots;
     } catch (err) {
         console.error('Check failed:', err);
+        checkerState.lastError = String(err)
+        checkerState.lastErrorTime = getCurrentDateTime()
     } finally {
         checkerState.isChecking = false;
 
@@ -219,6 +226,8 @@ export function getCheckerStatus() {
         isRunning: checkerState.isRunning,
         isChecking: checkerState.isChecking,
         lastSlots: checkerState.lastSlots,
-        lastCheckingTime: checkerState.lastCheckingTime
+        lastCheckingTime: checkerState.lastCheckingTime,
+        lastError: checkerState.lastError,
+        lastErrorTime: checkerState.lastErrorTime
     };
 }
