@@ -21,6 +21,7 @@ router.post('/stop', (_, res) => {
 });
 
 router.get('/status', (_, res) => {
+    console.log('ping ' + Date.now().toString())
     res.json(getCheckerStatus());
 });
 
